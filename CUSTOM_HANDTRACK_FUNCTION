@@ -1,0 +1,106 @@
+
+ofVec4f ncKinectv2Core::bothHands() {
+
+	ofVec4f leftHandVec;
+	
+	//GET NEW FRAME FROM KINECT
+	IBodyFrame* bodyframe;
+	IBodyFrameReference* frameref = NULL;
+
+	if (reader) {
+		IMultiSourceFrame* frame = NULL;
+		if (SUCCEEDED(reader->AcquireLatestFrame(&frame))) {
+
+
+
+			
+			frame->get_BodyFrameReference(&frameref);
+			frameref->AcquireFrame(&bodyframe);
+			if (frameref) SafeRelease(frameref);
+
+			if (!bodyframe) {
+				//cout << "skipped bodyframe " << " " << ofToString(ofGetFrameNum()) << endl;
+				return ofVec2f();
+			}
+
+			//SET FLOORPLANE
+			Vector4 _floorplane;
+			bodyframe->get_FloorClipPlane(&_floorplane);
+			floorplane.x = _floorplane.x;
+			floorplane.y = _floorplane.y;
+			floorplane.z = _floorplane.z;
+			floorplane.w = _floorplane.w;
+
+			//GET JOINT DATA
+			IBody* bodies[BODY_COUNT] = { 0 };
+
+			if (SUCCEEDED(bodyframe->GetAndRefreshBodyData(BODY_COUNT, bodies))) {
+
+
+
+				//FIRST LOOP THROUGH TRACKED USER AND DO USER MANAGEMENT
+				vector<bool> totrack;
+				
+
+#ifdef GESTURES
+					gesturedetectors[i]->update();
+#endif
+					//CHECK FOR BODIES IN LIST
+					for (int i = 0; i < BODY_COUNT; i++)
+					{
+
+						//CHECK IF TRACKING BODY, CLEAR LAST FRAME
+						BOOLEAN tracked;
+						UINT64 trackingId;
+						bodies[i]->get_TrackingId(&trackingId);
+						bodies[i]->get_IsTracked(&tracked);
+						users[i].tracked = (bool)tracked;
+						users[i].joints2dposition.clear();
+						users[i].joints3dposition.clear();
+						users[i].joints3drotation.clear();
+						users[i].kinectid = trackingId;
+
+						if ((bool)tracked) {
+							//GET LIST OF BODY JOINTS
+							Joint joints[JointType::JointType_Count];
+							JointOrientation jointsOrient[JointType_Count];
+
+							if (SUCCEEDED(bodies[i]->GetJoints(JointType::JointType_Count, joints))) {
+								if (SUCCEEDED(bodies[i]->GetJointOrientations(JointType_Count, jointsOrient))) {
+									//STORE ALL JOINT POSITIONS IN ARRAY (k)
+									for (int k = 0; k < JointType::JointType_Count; k++) {
+										users[i].joints3dposition.push_back(ofVec3f(joints[k].Position.X, joints[k].Position.Y, joints[k].Position.Z));
+										
+										//GET JOINT ORIENTATION AND DEPTH
+										users[i].joints3drotation.push_back(ofVec4f(jointsOrient[k].Orientation.x, jointsOrient[k].Orientation.y, jointsOrient[k].Orientation.z, jointsOrient[k].Orientation.w));
+										DepthSpacePoint depthPoint = { 0 };
+										mapper->MapCameraPointToDepthSpace(joints[k].Position, &depthPoint);
+										users[i].joints2dposition.push_back(ofVec2f(depthPoint.X, depthPoint.Y));
+									}
+									//GET LEFFT AND RIGHT HAND XY OUT OF  JOINTS ARRAY, FILTER 0.0 VALUES, AND STORE IN VEC4
+									if ((joints[7].Position.X != 0.0 && joints[7].Position.Y != 0.0) || (joints[11].Position.X != 0.0 && joints[11].Position.Y)) {
+										leftHandVec = ofVec4f(joints[7].Position.X, joints[7].Position.Y, joints[11].Position.X, joints[11].Position.Y);
+									}
+
+								}
+
+							}
+						}
+					}
+
+				//After body processing is done, we're done with our bodies so release them.
+				for (unsigned int bodyIndex = 0; bodyIndex < _countof(bodies); bodyIndex++) {
+					SafeRelease(bodies[bodyIndex]);
+				}
+
+			}
+
+			SafeRelease(bodyframe);
+			
+		}
+		SafeRelease(frame);
+	}
+
+	//RETURN LEFT RIGHT XY VALUES
+	return leftHandVec;
+}
